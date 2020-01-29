@@ -13,7 +13,9 @@ if not os.path.exists('results'):
 share_config = {'mode': 'training',
                 'dataset': 'avenue',
                 'img_size': (256, 256),
-                'data_root': '/mnt/workspace/datasets/A3D_2.0'}  # remember the final '/'
+                'data_root': '/home/data/vision7/A3D_2.0/'}
+                # 'data_root': '/mnt/workspace/datasets/A3D_2.0/'}  # remember the final '/'
+                
 
 
 class dict2class:

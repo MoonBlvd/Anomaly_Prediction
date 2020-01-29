@@ -32,12 +32,12 @@ class train_dataset(Dataset):
         self.videos = []
         self.all_seqs = []
 
-        train_annos = json.load(open('/mnt/workspace/datasets/A3D_2.0/A3D_2.0_train.json', 'r'))
+        train_annos = json.load(open(os.path.join(cfg.data_root, 'A3D_2.0_train.json'), 'r'))
         valid_video_names = train_annos.keys()
         # for folder in sorted(glob.glob(f'{cfg.train_data}/*')):
         # for folder in tqdm(sorted(glob.glob('/mnt/workspace/datasets/A3D_2.0/frames/*'))):
         for vid in tqdm(valid_video_names):
-            folder = os.path.join('/mnt/workspace/datasets/A3D_2.0/frames/', vid)
+            folder = os.path.join(cfg.data_root, 'frames', vid)
             all_imgs = sorted(glob.glob(os.path.join(folder,'images', '*.jpg')))
             # only select normal frames for training.
             all_imgs = all_imgs[:train_annos[vid]['anomaly_start']]
@@ -109,7 +109,7 @@ class Label_loader:
 
     def load_a3d(self):
         all_gt = []
-        val_annos = json.load(open('/mnt/workspace/datasets/A3D_2.0/A3D_2.0_val.json', 'r'))
+        val_annos = json.load(open(os.path.join(cfg.data_root 'A3D_2.0_val.json'), 'r'))
         for video_folder in tqdm(self.video_folders):
             length = len(sorted(glob.glob(os.path.join(video_folder, '*.jpg')))) 
             sub_video_gt = np.zeros((length,), dtype=np.int8)
