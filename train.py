@@ -17,6 +17,8 @@ from models.liteFlownet import lite_flownet as lite_flow
 from config import update_config
 from models.flownet2.models import FlowNet2SD
 from evaluate import val
+from tqdm import tqdm
+import pdb
 
 parser = argparse.ArgumentParser(description='Anomaly Prediction')
 parser.add_argument('--batch_size', default=8, type=int)
@@ -82,17 +84,18 @@ discriminator = discriminator.train()
 try:
     step = start_iter
     while training:
-        for indice, clips, flow_strs in train_dataloader:
+        for indice, clips, flow_strs in tqdm(train_dataloader):
+            # pdb.set_trace()
             input_frames = clips[:, 0:12, :, :].cuda()  # (n, 12, 256, 256)
             target_frame = clips[:, 12:15, :, :].cuda()  # (n, 3, 256, 256)
             input_last = input_frames[:, 9:12, :, :].cuda()  # use for flow_loss
 
-            # pop() the used frame index, this can't work in train_dataset.__getitem__ because of multiprocessing.
-            for index in indice:
-                train_dataset.all_seqs[index].pop()
-                if len(train_dataset.all_seqs[index]) == 0:
-                    train_dataset.all_seqs[index] = list(range(len(train_dataset.videos[index]) - 4))
-                    random.shuffle(train_dataset.all_seqs[index])
+            # # pop() the used frame index, this can't work in train_dataset.__getitem__ because of multiprocessing.
+            # for index in indice:
+            #     train_dataset.all_seqs[index].pop()
+            #     if len(train_dataset.all_seqs[index]) == 0:
+            #         train_dataset.all_seqs[index] = list(range(len(train_dataset.videos[index]) - 4))
+            #         random.shuffle(train_dataset.all_seqs[index])
 
             G_frame = generator(input_frames)
 

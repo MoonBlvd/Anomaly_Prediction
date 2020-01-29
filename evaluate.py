@@ -10,10 +10,14 @@ from sklearn import metrics
 import matplotlib.pyplot as plt
 
 from config import update_config
+from torch.utils.data import DataLoader
 from Dataset import Label_loader
 from utils import psnr_error
 import Dataset
 from models.unet import UNet
+import json
+import pdb
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser(description='Anomaly Prediction')
 parser.add_argument('--dataset', default='avenue', type=str, help='The name of the dataset to train.')
@@ -33,10 +37,14 @@ def val(cfg, model=None):
         generator.load_state_dict(torch.load('weights/' + cfg.trained_model)['net_g'])
         print(f'The pre-trained generator has been loaded from \'weights/{cfg.trained_model}\'.\n')
 
-    video_folders = os.listdir(cfg.test_data)
-    video_folders.sort()
-    video_folders = [os.path.join(cfg.test_data, aa) for aa in video_folders]
-
+    # video_folders = os.listdir(cfg.test_data)
+    # video_folders.sort()
+    # video_folders = [os.path.join(cfg.test_data, aa) for aa in video_folders]
+    
+    with open(os.path.join(cfg.data_root, 'val_split_with_obj.txt')) as f:
+        all_video_names = f.read().splitlines()
+    video_folders = [os.path.join(cfg.data_root, 'frames', vid, 'images') for vid in all_video_names]
+    
     fps = 0
     psnr_group = []
 
@@ -61,10 +69,16 @@ def val(cfg, model=None):
             cv2.resizeWindow('difference map', 384, 384)
             cv2.moveWindow('difference map', 100, 550)
 
-    with torch.no_grad():
-        for i, folder in enumerate(video_folders):
-            dataset = Dataset.test_dataset(cfg, folder)
+    # load gt labels
+    gt_loader = Label_loader(cfg, video_folders)  # Get gt labels.
+    gt = gt_loader()
 
+    with torch.no_grad():
+        for i, folder in tqdm(enumerate(video_folders)):
+            dataset = Dataset.test_dataset(cfg, folder)
+            test_dataloader = DataLoader(dataset=dataset, batch_size=cfg.batch_size,
+                              shuffle=False, num_workers=cfg.batch_size)
+            
             if not model:
                 name = folder.split('/')[-1]
                 fourcc = cv2.VideoWriter_fourcc('X', 'V', 'I', 'D')
@@ -82,16 +96,21 @@ def val(cfg, model=None):
                     heatmap_writer = cv2.VideoWriter(f'results/{name}_heatmap.avi', fourcc, 30, cfg.img_size)
 
             psnrs = []
-            for j, clip in enumerate(dataset):
-                input_np = clip[0:12, :, :]
-                target_np = clip[12:15, :, :]
-                input_frames = torch.from_numpy(input_np).unsqueeze(0).cuda()
-                target_frame = torch.from_numpy(target_np).unsqueeze(0).cuda()
+            # for j, clip in enumerate(dataset):
+            for clip in test_dataloader:
+                input_frames = clip[:, 0:12, :, :].cuda()
+                target_frame = clip[:, 12:15, :, :].cuda()
+                # input_np = clip[0:12, :, :]
+                # target_np = clip[12:15, :, :]
+                # input_frames = torch.from_numpy(input_np).unsqueeze(0).cuda()
+                # target_frame = torch.from_numpy(target_np).unsqueeze(0).cuda()
 
                 G_frame = generator(input_frames)
-                test_psnr = psnr_error(G_frame, target_frame).cpu().detach().numpy()
-                psnrs.append(float(test_psnr))
-
+                '''TODO: save predicted frame or difference '''
+                test_psnr = psnr_error(G_frame, target_frame, reduce_batch=False).cpu().detach().numpy()
+                # psnrs.append(float(test_psnr))
+                psnrs += list(test_psnr)
+                
                 if not model:
                     if cfg.show_curve:
                         cv2_frame = ((target_np + 1) * 127.5).transpose(1, 2, 0).astype('uint8')
@@ -125,12 +144,13 @@ def val(cfg, model=None):
                         heatmap_writer.write(heat_map)  # Write heatmap frames.
 
                 torch.cuda.synchronize()
-                end = time.time()
-                if j > 1:  # Compute fps by calculating the time used in one completed iteration, this is more accurate.
-                    fps = 1 / (end - temp)
-                temp = end
-                print(f'\rDetecting: [{i + 1:02d}] {j + 1}/{len(dataset)}, {fps:.2f} fps.', end='')
+                # end = time.time()
+                # if j > 1:  # Compute fps by calculating the time used in one completed iteration, this is more accurate.
+                #     fps = 1 / (end - temp)
+                # temp = end
+                # print(f'\rDetecting: [{i + 1:02d}] {j + 1}/{len(dataset)}, {fps:.2f} fps.', end='')
 
+            assert len(psnrs) == len(gt[i]) - 4
             psnr_group.append(np.array(psnrs))
 
             if not model:
@@ -141,9 +161,6 @@ def val(cfg, model=None):
                     heatmap_writer.release()
 
     print('\nAll frames were detected, begin to compute AUC.')
-
-    gt_loader = Label_loader(cfg, video_folders)  # Get gt labels.
-    gt = gt_loader()
 
     assert len(psnr_group) == len(gt), f'Ground truth has {len(gt)} videos, but got {len(psnr_group)} detected videos.'
 

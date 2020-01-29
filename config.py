@@ -13,7 +13,7 @@ if not os.path.exists('results'):
 share_config = {'mode': 'training',
                 'dataset': 'avenue',
                 'img_size': (256, 256),
-                'data_root': '/home/feiyu/Data/'}  # remember the final '/'
+                'data_root': '/mnt/workspace/datasets/A3D_2.0'}  # remember the final '/'
 
 
 class dict2class:
@@ -30,7 +30,7 @@ class dict2class:
 
 def update_config(args=None, mode=None):
     share_config['mode'] = mode
-    assert args.dataset in ('ped2', 'avenue', 'shanghaitech'), 'Dataset error.'
+    assert args.dataset in ('ped2', 'avenue', 'shanghaitech', 'a3d_2.0'), 'Dataset error.'
     share_config['dataset'] = args.dataset
 
     if mode == 'train':
@@ -48,6 +48,7 @@ def update_config(args=None, mode=None):
 
     elif mode == 'test':
         share_config['test_data'] = share_config['data_root'] + args.dataset + '/testing/'
+        share_config['batch_size'] = args.batch_size
         share_config['trained_model'] = args.trained_model
         share_config['show_curve'] = args.show_curve
         share_config['show_heatmap'] = args.show_heatmap

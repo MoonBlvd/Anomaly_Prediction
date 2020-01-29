@@ -13,7 +13,7 @@ def log10(t):
     return numerator / denominator
 
 
-def psnr_error(gen_frames, gt_frames):
+def psnr_error(gen_frames, gt_frames, reduce_batch=True):
     """
     Computes the Peak Signal to Noise Ratio error between the generated images and the ground
     truth images.
@@ -30,7 +30,10 @@ def psnr_error(gen_frames, gt_frames):
     gen_frames = (gen_frames + 1.0) / 2.0
     square_diff = (gt_frames - gen_frames) ** 2
     batch_errors = 10 * log10(1. / ((1. / num_pixels) * torch.sum(square_diff, [1, 2, 3])))
-    return torch.mean(batch_errors)
+    if reduce_batch:
+        return torch.mean(batch_errors)
+    else:
+        return batch_errors
 
 
 def weights_init_normal(m):

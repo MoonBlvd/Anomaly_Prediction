@@ -6,7 +6,9 @@ import glob
 import os
 import scipy.io as scio
 from torch.utils.data import Dataset
-
+import json
+import pdb
+from tqdm import tqdm
 
 def np_load_frame(filename, resize_h, resize_w):
     img = cv2.imread(filename)
@@ -26,29 +28,41 @@ class train_dataset(Dataset):
         self.img_h = cfg.img_size[0]
         self.img_w = cfg.img_size[1]
         self.clip_length = 5
-
+        
         self.videos = []
         self.all_seqs = []
-        for folder in sorted(glob.glob(f'{cfg.train_data}/*')):
-            all_imgs = glob.glob(f'{folder}/*.jpg')
-            all_imgs.sort()
-            self.videos.append(all_imgs)
 
-            random_seq = list(range(len(all_imgs) - 4))
-            random.shuffle(random_seq)
-            self.all_seqs.append(random_seq)
-
+        train_annos = json.load(open('/mnt/workspace/datasets/A3D_2.0/A3D_2.0_train.json', 'r'))
+        valid_video_names = train_annos.keys()
+        # for folder in sorted(glob.glob(f'{cfg.train_data}/*')):
+        # for folder in tqdm(sorted(glob.glob('/mnt/workspace/datasets/A3D_2.0/frames/*'))):
+        for vid in tqdm(valid_video_names):
+            folder = os.path.join('/mnt/workspace/datasets/A3D_2.0/frames/', vid)
+            all_imgs = sorted(glob.glob(os.path.join(folder,'images', '*.jpg')))
+            # only select normal frames for training.
+            all_imgs = all_imgs[:train_annos[vid]['anomaly_start']]
+            for i in list(range(len(all_imgs) - 4)):
+                self.all_seqs.append((folder, i))
+            # self.videos.append(all_imgs)
+            # random_seq = list(range(len(all_imgs) - 4))
+            # random.shuffle(random_seq)
+            # self.all_seqs.append(random_seq)
     def __len__(self):  # This decide the indice range of the PyTorch Dataloader.
-        return len(self.videos)
+        return len(self.all_seqs)
 
     def __getitem__(self, indice):  # Indice decide which video folder to be loaded.
-        one_folder = self.videos[indice]
+        # one_folder = self.videos[indice]
 
         video_clip = []
-        start = self.all_seqs[indice][-1]  # Always use the last index in self.all_seqs.
+        # start = self.all_seqs[indice][-1]  # Always use the last index in self.all_seqs.
+        # for i in range(start, start + self.clip_length):
+            # video_clip.append(np_load_frame(one_folder[i], self.img_h, self.img_w))
+        
+        folder, start = self.all_seqs[indice]
         for i in range(start, start + self.clip_length):
-            video_clip.append(np_load_frame(one_folder[i], self.img_h, self.img_w))
-
+            img_path = os.path.join(folder, 'images', str(i).zfill(6)+'.jpg')
+            video_clip.append(np_load_frame(img_path, self.img_h, self.img_w))
+            
         video_clip = np.array(video_clip).reshape((-1, self.img_h, self.img_w))
         video_clip = torch.from_numpy(video_clip)
 
@@ -61,8 +75,7 @@ class test_dataset:
         self.img_h = cfg.img_size[0]
         self.img_w = cfg.img_size[1]
         self.clip_length = 5
-        self.imgs = glob.glob(video_folder + '/*.jpg')
-        self.imgs.sort()
+        self.imgs = sorted(glob.glob(os.path.join(video_folder, '*.jpg')))
 
     def __len__(self):
         return len(self.imgs) - (self.clip_length - 1)  # The first [input_num] frames are unpredictable.
@@ -78,19 +91,36 @@ class test_dataset:
 
 class Label_loader:
     def __init__(self, cfg, video_folders):
-        assert cfg.dataset in ('ped2', 'avenue', 'shanghaitech'), f'Did not find the related gt for \'{cfg.dataset}\'.'
+        assert cfg.dataset in ('ped2', 'avenue', 'shanghaitech', 'a3d_2.0'), f'Did not find the related gt for \'{cfg.dataset}\'.'
         self.cfg = cfg
         self.name = cfg.dataset
         self.frame_path = cfg.test_data
         self.mat_path = f'{cfg.data_root + self.name}/{self.name}.mat'
         self.video_folders = video_folders
-
+        self.clip_length  = 5
     def __call__(self):
         if self.name == 'shanghaitech':
             gt = self.load_shanghaitech()
+        elif self.name == 'a3d_2.0':
+            gt = self.load_a3d()
         else:
             gt = self.load_ucsd_avenue()
         return gt
+
+    def load_a3d(self):
+        all_gt = []
+        val_annos = json.load(open('/mnt/workspace/datasets/A3D_2.0/A3D_2.0_val.json', 'r'))
+        for video_folder in tqdm(self.video_folders):
+            length = len(sorted(glob.glob(os.path.join(video_folder, '*.jpg')))) 
+            sub_video_gt = np.zeros((length,), dtype=np.int8)
+            vid = video_folder.split('/')[-2]
+            start = val_annos[vid]['anomaly_start']
+            end = val_annos[vid]['anomaly_end']
+            sub_video_gt[start: end] = 1
+            all_gt.append(sub_video_gt)
+            
+        return all_gt
+
 
     def load_ucsd_avenue(self):
         abnormal_events = scio.loadmat(self.mat_path, squeeze_me=True)['gt']
