@@ -49,6 +49,10 @@ def get_tarr(difference_map, label, bboxes, image_size=(1280, 720)):
         tarr = values[true_anomaly_idx].sum() / values.sum()
         return tarr, mask
 
+from sklearn.utils.extmath import stable_cumsum
+from sklearn.utils.validation import column_or_1d, check_consistent_length, assert_all_finite
+from sklearn.utils.multiclass import type_of_target
+
 class ST_AUC():
     def __init__(self, labels, scores, tarrs):
         self.labels = labels
@@ -71,12 +75,14 @@ class ST_AUC():
                                           True])[0]
             fps = fps[optimal_idxs]
             tps = tps[optimal_idxs]
+            positives = positives[optimal_idxs]
             thresholds = thresholds[optimal_idxs]
 
         # Add an extra threshold position
         # to make sure that the curve starts at (0, 0)
         tps = np.r_[0, tps]
         fps = np.r_[0, fps]
+        positives = np.r_[0, positives]
         thresholds = np.r_[thresholds[0] + 1, thresholds]
 
         if fps[-1] <= 0:
@@ -93,8 +99,9 @@ class ST_AUC():
                         UndefinedMetricWarning)
             tpr = np.repeat(np.nan, tps.shape)
         else:
-            tpr = tps / positives[-1] #tps[-1]
-        return fpr, tpr, thresholds
+            sttpr = tps / positives[-1] #tps[-1]
+            tpr = positives / positives[-1]
+        return fpr, tpr, sttpr, thresholds
     
     def _binary_clf_curve(self, y_true, y_score, pos_label=None, sample_weight=None):
         """Calculate true and false positives per binary classification threshold.
@@ -179,7 +186,7 @@ class ST_AUC():
 
         # accumulate the true positives with decreasing threshold
         tps = stable_cumsum(y_true * weight)[threshold_idxs]
-        positives = stable_cumsum(y_true) # Note that the number of positive should be computed differently
+        positives = stable_cumsum(y_true)[threshold_idxs] # Note that the number of positive should be computed differently
         if sample_weight is not None:
             # express fps as a cumsum to ensure fps is increasing even in
             # the presence of floating point errors
