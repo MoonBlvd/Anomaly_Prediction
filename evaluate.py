@@ -22,6 +22,8 @@ from tqdm import tqdm
 parser = argparse.ArgumentParser(description='Anomaly Prediction')
 parser.add_argument('--dataset', default='avenue', type=str, help='The name of the dataset to train.')
 parser.add_argument('--trained_model', default=None, type=str, help='The pre-trained model to evaluate.')
+parser.add_argument('--batch_size', default=1, type=int, help='the batch size used for eval.')
+
 parser.add_argument('--show_curve', action='store_true',
                     help='Show and save the psnr curve real-timely, this drops fps.')
 parser.add_argument('--show_heatmap', action='store_true',
@@ -71,14 +73,15 @@ def val(cfg, model=None):
 
     # load gt labels
     gt_loader = Label_loader(cfg, video_folders)  # Get gt labels.
-    gt = gt_loader()
+    gt, gt_bboxes = gt_loader()
 
     with torch.no_grad():
         for i, folder in tqdm(enumerate(video_folders)):
             dataset = Dataset.test_dataset(cfg, folder)
             test_dataloader = DataLoader(dataset=dataset, batch_size=cfg.batch_size,
                               shuffle=False, num_workers=cfg.batch_size)
-            
+            vid = folder.split('/')[-2]
+
             if not model:
                 name = folder.split('/')[-1]
                 fourcc = cv2.VideoWriter_fourcc('X', 'V', 'I', 'D')
@@ -96,6 +99,7 @@ def val(cfg, model=None):
                     heatmap_writer = cv2.VideoWriter(f'results/{name}_heatmap.avi', fourcc, 30, cfg.img_size)
 
             psnrs = []
+            diff_maps = []
             # for j, clip in enumerate(dataset):
             for clip in test_dataloader:
                 input_frames = clip[:, 0:12, :, :].cuda()
@@ -108,6 +112,10 @@ def val(cfg, model=None):
                 G_frame = generator(input_frames)
                 '''TODO: save predicted frame or difference '''
                 test_psnr = psnr_error(G_frame, target_frame, reduce_batch=False).cpu().detach().numpy()
+                # NOTE: Save squred diff so that we could reuse it for differen evaluation
+                square_diff = (target_frame - G_frame).pow(2).mean(dim=1).cpu().detach().numpy().astype('float16')
+                diff_maps.append(square_diff)
+
                 # psnrs.append(float(test_psnr))
                 psnrs += list(test_psnr)
                 
@@ -149,8 +157,10 @@ def val(cfg, model=None):
                 #     fps = 1 / (end - temp)
                 # temp = end
                 # print(f'\rDetecting: [{i + 1:02d}] {j + 1}/{len(dataset)}, {fps:.2f} fps.', end='')
-
-            assert len(psnrs) == len(gt[i]) - 4
+            diff_maps = np.concatenate(diff_maps, axis=0)
+            np.save(os.path.join('saved_difference_map', vid+'.npy'), diff_maps)
+            if len(psnrs) != len(gt[i]) - 4 or len(psnrs) != len(diff_maps):
+                pdb.set_trace()
             psnr_group.append(np.array(psnrs))
 
             if not model:

@@ -102,24 +102,37 @@ class Label_loader:
         if self.name == 'shanghaitech':
             gt = self.load_shanghaitech()
         elif self.name == 'a3d_2.0':
-            gt = self.load_a3d()
+            gt, all_bboxes = self.load_a3d()
         else:
             gt = self.load_ucsd_avenue()
-        return gt
+        return gt, all_bboxes
 
     def load_a3d(self):
         all_gt = []
-        val_annos = json.load(open(os.path.join(cfg.data_root 'A3D_2.0_val.json'), 'r'))
+        all_bboxes = []
+        val_annos = json.load(open(os.path.join(self.cfg.data_root, 'A3D_2.0_val.json'), 'r'))
+        # create
         for video_folder in tqdm(self.video_folders):
             length = len(sorted(glob.glob(os.path.join(video_folder, '*.jpg')))) 
             sub_video_gt = np.zeros((length,), dtype=np.int8)
             vid = video_folder.split('/')[-2]
+            # get temporal label
             start = val_annos[vid]['anomaly_start']
             end = val_annos[vid]['anomaly_end']
             sub_video_gt[start: end] = 1
             all_gt.append(sub_video_gt)
             
-        return all_gt
+            # get spatial label
+            annos = json.load(open(os.path.join(self.cfg.data_root, 'final_labels', vid+'.json'), 'r'))
+            if len(annos['labels']) != length:
+                # pdb.set_trace()
+                print(vid)
+            for label in annos['labels']:
+                bboxes_per_frame = []
+                for obj in label['objects']:
+                    bboxes_per_frame.append(obj['bbox'])
+                all_bboxes.append(bboxes_per_frame)
+        return all_gt, all_bboxes
 
 
     def load_ucsd_avenue(self):
