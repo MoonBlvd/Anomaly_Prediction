@@ -8,6 +8,48 @@ from sklearn.utils.multiclass import type_of_target
 
 import pdb
 
+def bbox_score_to_score_map(bboxes, scores, image_size=(1280,720)):
+    '''
+    Params:
+        bboxes: a BoxList object or a tensor bboxes, in x1y1x2y2 format
+        scores: scores of each bbox
+    Return:
+        score_map: (H, W)
+    '''
+    H = 256 #720
+    W = 256 #1280
+    score_map = torch.zeros(H, W)
+    
+    if bboxes.max() > 1:
+        # normalize then denormalize to correct size
+        bboxes[:,[0,2]] /= image_size[0] 
+        bboxes[:,[1,3]] /= image_size[1]
+        bboxes[:,[0,2]] *= W
+        bboxes[:,[1,3]] *= H
+        bboxes = bboxes.type(torch.long)
+        bboxes[:,[0,2]] = torch.clamp(bboxes[:,[0,2]], min=0, max=W)
+        bboxes[:,[1,3]] = torch.clamp(bboxes[:,[1,3]], min=0, max=H)
+    
+    # Generate gaussian
+    for bbox, score in zip(bboxes, scores):
+        
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        sigma = torch.tensor([w, h])
+
+        x_locs = torch.arange(0, w, 1).type(torch.float)
+        y_locs = torch.arange(0, h, 1).type(torch.float)
+        y_locs = y_locs[:, np.newaxis]
+        
+        x0 = w // 2
+        y0 = h // 2
+        # The gaussian is not normalized, we want the center value to equal 1
+        g = np.exp(- (((x_locs - x0) ** 2)/sigma[0] + ((y_locs - y0) ** 2)/sigma[1]) / 2 )        
+        score = g * score
+        score_map[bbox[1]:bbox[3], bbox[0]:bbox[2]] += score
+    return score_map
+
+
 def get_tarr(difference_map, label, bboxes, image_size=(1280, 720)):
     '''
     Given a difference map and annotations, compute the 

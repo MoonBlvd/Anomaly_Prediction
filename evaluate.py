@@ -1,5 +1,7 @@
 import numpy as np
 import os
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]='2'
 import time
 import torch
 import argparse
@@ -173,6 +175,8 @@ def val(cfg, model=None):
     print('\nAll frames were detected, begin to compute AUC.')
 
     assert len(psnr_group) == len(gt), f'Ground truth has {len(gt)} videos, but got {len(psnr_group)} detected videos.'
+    # save psnr
+    torch.save(psnr_group, 'results/psnr_group.pth')
 
     scores = np.array([], dtype=np.float32)
     labels = np.array([], dtype=np.int8)
@@ -183,7 +187,8 @@ def val(cfg, model=None):
 
         scores = np.concatenate((scores, distance), axis=0)
         labels = np.concatenate((labels, gt[i][4:]), axis=0)  # Exclude the first 4 unpredictable frames in gt.
-
+    
+    torch.save(psnr_group, 'results/psnr_normalized.pth')
     assert scores.shape == labels.shape, \
         f'Ground truth has {labels.shape[0]} frames, but got {scores.shape[0]} detected frames.'
 
