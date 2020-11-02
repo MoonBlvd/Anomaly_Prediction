@@ -70,7 +70,8 @@ flow_loss = Flow_Loss().cuda()
 intensity_loss = Intensity_Loss().cuda()
 
 train_dataset = Dataset.train_dataset(train_cfg)
-
+train_dataset.__getitem__(0)
+pdb.set_trace()
 # Remember to set drop_last=True, because we need to use 4 frames to predict one frame.
 train_dataloader = DataLoader(dataset=train_dataset, batch_size=train_cfg.batch_size,
                               shuffle=True, num_workers=4, drop_last=True)

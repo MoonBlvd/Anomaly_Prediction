@@ -9,9 +9,20 @@ from torch.utils.data import Dataset
 import json
 import pdb
 from tqdm import tqdm
+from maskrcnn_benchmark.modeling.roi_heads.mask_head.inference import Masker
+
 
 def np_load_frame(filename, resize_h, resize_w):
     img = cv2.imread(filename)
+    image_resized = cv2.resize(img, (resize_w, resize_h)).astype('float32')
+    image_resized = (image_resized / 127.5) - 1.0  # to -1 ~ 1
+    image_resized = np.transpose(image_resized, [2, 0, 1])  # to (C, W, H)
+    return image_resized
+
+def np_load_masked_frame(filename, mask, resize_h, resize_w):
+    img = cv2.imread(filename)
+    mask = mask.astype(np.uint8)
+    img = mask[0,:,:,None] * img
     image_resized = cv2.resize(img, (resize_w, resize_h)).astype('float32')
     image_resized = (image_resized / 127.5) - 1.0  # to -1 ~ 1
     image_resized = np.transpose(image_resized, [2, 0, 1])  # to (C, W, H)
@@ -28,21 +39,23 @@ class train_dataset(Dataset):
         self.img_h = cfg.img_size[0]
         self.img_w = cfg.img_size[1]
         self.clip_length = 5
+        self.masker = Masker(threshold=0.5, padding=1)
         
         self.videos = []
         self.all_seqs = []
-
         train_annos = json.load(open(os.path.join(cfg.data_root, 'A3D_2.0_train.json'), 'r'))
         valid_video_names = train_annos.keys()
         # for folder in sorted(glob.glob(f'{cfg.train_data}/*')):
         # for folder in tqdm(sorted(glob.glob('/mnt/workspace/datasets/A3D_2.0/frames/*'))):
         for vid in tqdm(valid_video_names):
             folder = os.path.join(cfg.data_root, 'frames', vid)
+            instance_seg_folder = os.path.join(cfg.data_root, 'detection_with_seg', vid)
+
             all_imgs = sorted(glob.glob(os.path.join(folder,'images', '*.jpg')))
             # only select normal frames for training.
             all_imgs = all_imgs[:train_annos[vid]['anomaly_start']]
             for i in list(range(len(all_imgs) - 4)):
-                self.all_seqs.append((folder, i))
+                self.all_seqs.append((folder, instance_seg_folder, i))
             # self.videos.append(all_imgs)
             # random_seq = list(range(len(all_imgs) - 4))
             # random.shuffle(random_seq)
@@ -58,10 +71,27 @@ class train_dataset(Dataset):
         # for i in range(start, start + self.clip_length):
             # video_clip.append(np_load_frame(one_folder[i], self.img_h, self.img_w))
         
-        folder, start = self.all_seqs[indice]
+        folder, seg_folder, start = self.all_seqs[indice]
+        
         for i in range(start, start + self.clip_length):
+            # NOTE: Feb 17, add a masked FuturePred
+            det_path = os.path.join(seg_folder, str(i).zfill(6)+'.pth')
+            det = torch.load(det_path)  
+            keep = []
+            for i in range(len(det)):
+                if det.extra_fields['labels'][i] <8:
+                    keep.append(i)
+            det.bbox = det.bbox[keep]
+            for k in det.extra_fields.keys():
+                det.extra_fields[k] = det.extra_fields[k][keep]
+
+            masks = det.get_field("mask")
+            masks = self.masker([masks], [det])[0]
+            masks = masks.sum(dim=0).clamp(min=0, max=1).numpy()
+
             img_path = os.path.join(folder, 'images', str(i).zfill(6)+'.jpg')
-            video_clip.append(np_load_frame(img_path, self.img_h, self.img_w))
+            # video_clip.append(np_load_frame(img_path, self.img_h, self.img_w))
+            video_clip.append(np_load_masked_frame(img_path, masks, self.img_h, self.img_w))
             
         video_clip = np.array(video_clip).reshape((-1, self.img_h, self.img_w))
         video_clip = torch.from_numpy(video_clip)
